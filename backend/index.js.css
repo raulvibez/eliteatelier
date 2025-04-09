@@ -1,0 +1,59 @@
+// File: backend/index.js
+const express = require("express");
+const multer = require("multer");
+const nodemailer = require("nodemailer");
+const fs = require("fs");
+const path = require("path");
+const cors = require("cors");
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+
+app.use(cors());
+const upload = multer({ dest: "uploads/" });
+
+// POST: Riceve dati e invia lo scontrino
+app.post("/api/genera-scontrino", upload.single("immagine"), async (req, res) => {
+  const { brand, prodotto, prezzo, descrizione, email } = req.body;
+  const immaginePath = req.file ? req.file.path : null;
+
+  try {
+    // 1. Carica il template HTML del brand
+    const templatePath = path.join(__dirname, "templates", `${brand}.html`);
+    let html = fs.readFileSync(templatePath, "utf-8");
+
+    // 2. Sostituisci i placeholder nel file
+    html = html.replace("{{prodotto}}", prodotto);
+    html = html.replace("{{prezzo}}", prezzo);
+    html = html.replace("{{descrizione}}", descrizione);
+    if (immaginePath) {
+      const imgBase64 = fs.readFileSync(immaginePath).toString("base64");
+      html = html.replace("{{immagine}}", `data:image/png;base64,${imgBase64}`);
+    } else {
+      html = html.replace("{{immagine}}", "");
+    }
+
+    // 3. Invia email
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+      },
+    });
+
+    await transporter.sendMail({
+      from: `Scontrino Bot <${process.env.EMAIL_USER}>`,
+      to: email,
+      subject: `Scontrino per ${brand.toUpperCase()}`,
+      html,
+    });
+
+    res.send({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).send({ error: "Errore nella generazione dello scontrino." });
+  }
+});
+
+app.listen(PORT, () => console.log(`Server avviato sulla porta ${PORT}`));
